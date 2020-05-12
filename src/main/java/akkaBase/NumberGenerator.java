@@ -1,5 +1,8 @@
 package akkaBase;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import akka.actor.typed.ActorRef;
 // пакет akka.actor.typed содержит классы ядра akka (это база)
 import akka.actor.typed.Behavior;
@@ -7,15 +10,15 @@ import akka.actor.typed.javadsl.AbstractBehavior;
 import akka.actor.typed.javadsl.ActorContext;
 import akka.actor.typed.javadsl.Behaviors;
 import akka.actor.typed.javadsl.Receive;
-import akkaBase.NumberGenerator.Command;
+import akkaBase.HelloWorld.ChangeMessage;
+import akkaBase.StatCalculator.Command;
 
 /*
-	Создаем класс HelloWorld, объекты которого обладают способностью
-	а) пересылать текстовое сообщение 
-	б) принимать текстовое сообщение
-	в) изменять текстовое сообщение
+	Создаем класс NumberGenerator, объекты которого обладают способностью
+	а) принимать dt - время до генерации следующего числа
+	б) генерировать числа через dt и помещать их в свой массив numArray
 	
-	Класс наследуется от AbstractBehavior<T>, который типизирован HelloWorld.Command 
+	Класс наследуется от AbstractBehavior<T>, который типизирован NumberGenerator.Command 
 
     Каждый субъект определяет тип T для сообщений, которые он может получать. 
     Сообщения являются неизменяемыми, поддерживают сопоставление с образцом.
@@ -35,78 +38,78 @@ import akkaBase.NumberGenerator.Command;
     4. Хорошей практикой является получение исходного поведения актера с помощью статического метода фабрики.
 */
 
-public class HelloWorld extends AbstractBehavior<HelloWorld.Command> {
+public class NumberGenerator extends AbstractBehavior<NumberGenerator.Command> {
 
-	private String message = "Hello World!!!"; // Сообщение по умолчанию
-	private final ActorRef<NumberGenerator.Command> numGen;
-	private final ActorRef<StatCalculator.Command> statCalc;
+	private ActorRef<StatCalculator.Command> replyTo;
+	
+	private List<Integer> numArray = new ArrayList<Integer>();
+	private long dt = 1000;
+	private int startNum = 0;
+	private int countEnd = 10;
 	
 	/* *************** Определяем команды (начало) *************************** 
 	   Интерфейс                                                                                   */
 	interface Command{}
 	
 	//...........   Реализация интерфейса command ..............
-	public enum HelloCommand implements Command{
+	public enum NumGenCommand implements Command{
 		HELLO,
-		START_GEN,
-		START_CALC
+		START_GEN
 	}
 	
-	//...........   Реализация интерфейса command ..............
-	public static class ChangeMessage implements Command {
-       public final String newMessage;
+	public static class NumbGen implements Command {
+		public final ActorRef<StatCalculator.Command> replyTo;
 
-	public ChangeMessage(String newMessage) {
-		super();
-		this.newMessage = newMessage;
-	 }
+		public NumbGen(ActorRef<StatCalculator.Command> replyTo) {
+			super();
+			this.replyTo = replyTo;
+		}
 	}
+	
+	
 	// ***************команды (конец) ***************************  
    
 	// Конструктор 
-	private HelloWorld(ActorContext<Command> context) {
+	private NumberGenerator(ActorContext<Command> context) {
 		super(context);
-		numGen = context.spawn(NumberGenerator.create(), "NumberGenerator");
-		statCalc = context.spawn(StatCalculator.create(), "StatCalculator");
 	}
 	
 	// static фабричный метод, 
 	public static Behavior<Command> create(){
-		return Behaviors.setup(context -> new HelloWorld(context));
+		return Behaviors.setup(context -> new NumberGenerator(context));
 	}
 	
 		@Override
 	public Receive<Command> createReceive(){
 		return newReceiveBuilder()
-			   .onMessageEquals(HelloCommand.HELLO,this::onSayHello)
-			   .onMessageEquals(HelloCommand.START_GEN,this::onStartGen)
-			   .onMessageEquals(HelloCommand.START_CALC,this::onStartCalc)
-			   .onMessage(ChangeMessage.class, this::onChangeMessage)
+			   .onMessageEquals(NumGenCommand.HELLO,this::onSayHello)
+			   .onMessage(NumbGen.class, this::onStartGen)
 			   .build();
 	}
-	
-	// Обработчики событий изменения сообщения
-	private Behavior<Command> onChangeMessage(ChangeMessage command){
-		message = command.newMessage;	
-		return this;
-	}
-	
+		
 	// Обработчики событий передачи сообщения
 	private Behavior<Command> onSayHello(){
-		getContext().getLog().info(message);
-		//numGen.tell(NumberGenerator.NumGenCommand.HELLO);
+		getContext().getLog().info("Hello, I am NumberGenerator");
 		return this;
 	}
 	
-	private Behavior<Command> onStartGen(){
-		numGen.tell(new NumberGenerator.NumbGen(statCalc));
+	private Behavior<Command> onStartGen(NumbGen command){
+		replyTo = command.replyTo;
+		while (countEnd-- > 0) {
+			try {
+				Thread.sleep(dt);
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+			numArray.add(startNum++);
+			getContext().getLog().info("gen new value: {}", numArray.get(startNum-1));
+			replyTo.tell(new StatCalculator.CalcStat(numArray));
+			replyTo.tell(StatCalculator.StatCalcCommand.START_CALC);
+		}
 		return this;
 	}
 	
-	private Behavior<Command> onStartCalc(){
-		statCalc.tell(StatCalculator.StatCalcCommand.HELLO);
-		statCalc.tell(StatCalculator.StatCalcCommand.START_CALC);
-		return this;
-	}
+	
 		
 }
